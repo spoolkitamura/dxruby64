@@ -39,6 +39,10 @@ task :release do
   end
 
   sh "gem push #{GEM_FILE}"
+
+  # GitHubにタグを付けてプッシュ
+  sh "git tag v#{GEM_VERSION}"
+  sh "git push origin v#{GEM_VERSION}"
 end
 
 # --- Clean up ---
