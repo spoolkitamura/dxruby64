@@ -1,0 +1,26 @@
+require "fileutils"
+require "rbconfig"
+
+# 現在の Ruby バージョンから "ruby31" ～ "ruby34" を作成
+ruby_api = "ruby#{RUBY_VERSION.split('.')[0..1].join}"
+
+# 収集先ディレクトリ: ../../lib/31/ など
+DEST_DIR = File.join("..", "..", "lib", ruby_api[-2..])  # "ruby31" → "31"
+
+# 現在の Ruby 環境にインストールされた dxruby.so のパス
+so_source_path = File.join(RbConfig::CONFIG["sitearchdir"], "dxruby.so")
+
+# 移動先パス（例: ../../lib/31/dxruby.so）
+so_dest_path = File.join(DEST_DIR, "dxruby.so")
+
+desc "現在の Ruby バージョンの dxruby.so をバージョン別サブディレクトリに移動"
+task :get do
+  unless File.exist?(so_source_path)
+    abort "dxruby.so が見つかりません: #{so_source_path}"
+  end
+
+  FileUtils.mkdir_p(DEST_DIR)
+  FileUtils.mv(so_source_path, so_dest_path)
+
+  puts "Moved: #{so_dest_path}"
+end

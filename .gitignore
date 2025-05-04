@@ -1,0 +1,13 @@
+/.bundle/
+/.yardoc
+/_yardoc/
+/coverage/
+/_notes/
+/pkg/
+/tmp/
+Gemfile.lock
+/ext/dxruby64/Makefile
+/ext/dxruby64/*.o
+/ext/dxruby64/*.so
+/ext/dxruby64/*.def
+/ext/dxruby64/*.time
