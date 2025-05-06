@@ -2,7 +2,8 @@
 
 **DXRuby64** is a custom-built version of DXRuby for 64-bit Ruby 3.1 and later, created by patching the original DXRuby source to allow building with the Universal C Runtime (UCRT). With DXRuby64, you can develop 2D games using DirectX 9 even on 64-bit Ruby environments.
 
-**Note:** This gem is an unofficial version created by an individual and is not maintained by the original DXRuby project.
+**Note:**
+This gem is an unofficial version created by an individual and is not maintained by the original DXRuby project.
 
 [日本語の README はこちら](README-ja.md)
 
@@ -13,6 +14,10 @@ To install the gem, simply run:
 ```bash
 gem install dxruby64
 ```
+
+**Note:**
+Please run the above command only when the original DXRuby is not installed, as it may interfere with the operation of DXRuby64.
+(The original DXRuby does not support Ruby versions 3.1 and later, so the gem is unlikely to be installed in most environments.)
 
 ## Usage
 Once installed, you can use DXRuby features as usual:
@@ -54,6 +59,63 @@ gem contents dxruby64
 3. In the extracted folder, locate `Nov2008_d3dx9_40_x64.cab` and double-click it.
 
 4. Inside the `Nov2008_d3dx9_40_x64.cab` file, locate `d3dx9_40.dll` and copy (or move) it to the `bin` directory of your Ruby installation folder. (e.g. C:\Ruby34-x64\bin)
+
+
+
+
+
+## About the Sound Class Revision
+### Background
+The [original DXRuby](https://github.com/mirichi/dxruby) Sound class used a library called `DirectMusic`.
+However, on 64-bit environments of Windows 10/11, `DirectMusic` does not function correctly, and the following error has been confirmed:
+
+```
+`DXRuby::Sound#initialize': DirectMusic initialize error - CoCreateInstance (DXRuby::DXRubyError)  
+```
+
+Therefore, in DXRuby64, we replaced `DirectMusic` with a library called `DirectSound`.
+(`DirectSound` is already used in the SoundEffect class and is a proven library.)
+
+### Sample of the Revised Sound Class
+A sample using the revised Sound class has been added to the `wav_sample/` directory within the sample files mentioned earlier.
+Please give it a try.
+Also, be sure to review the following limitations and changes.
+
+### Limitations and Specification Changes
+Due to functional constraints of `DirectSound`, the following changes were made as part of the revision:
+
+Supported file format for the Sound class is `.wav` only
+(The [original DXRuby](https://github.com/mirichi/dxruby) also supported `.mid`)
+
+Loop count cannot be specified; only "play once" or "infinite loop" are supported
+
+Designed with use cases like sound effects and BGM for games in mind, only a minimal set of methods (listed below) is implemented
+
+```
+Available Methods (including newly arranged ones)
+
+ .new             Create an object
+ #play            Play
+ #stop            Stop
+ #volume=         Set volume (0 to 255)
+ #set_volume      Set volume (alias of #volume=, but the old fade effect via a second argument is not supported)
+ #loop=           Set loop mode (same as #loop_count; accepts true or false)
+ #loop_count=     Set loop count (only two options supported: 0 = play once, -1 = loop infinitely)
+ #dispose         Dispose the object
+ #disposed?       Check if the object has been disposed
+```
+```
+Unsupported Methods (implemented in the original DXRuby)
+
+ .load_from_memory
+ #start=
+ #loop_start=
+ #loop_end=
+ #pan
+ #pan=
+ #frequency
+ #frequency=
+```
 
 ## License
 This gem is licensed under the zlib/libpng license.

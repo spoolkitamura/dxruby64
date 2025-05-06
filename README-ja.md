@@ -2,7 +2,8 @@
 
 **DXRuby64** は 64ビット版の Ruby 3.1以降用にカスタムビルドされた **DXRuby** で、Universal C Runtime(UCRT)でビルドできるように[本家DXRuby](https://github.com/mirichi/dxruby)のソースにパッチを当てたものです。DXRuby64により、64ビット版の Rubyでも DirectX9をベースにした 2Dゲームを開発できるようになります。
 
-**注意：** この gem は個人によって作成された非公式バージョンであり、オリジナルの DXRubyプロジェクトではメンテナンスされていません。
+**注意：**
+この gem は個人によって作成された非公式バージョンであり、オリジナルの DXRubyプロジェクトではメンテナンスされていません。
 
 [English README here](README.md)
 
@@ -13,6 +14,10 @@ gem をインストールするには、以下のコマンドを実行してく�
 ```bash
 gem install dxruby64
 ```
+
+**注意：**
+DXRuby64の動作に影響が出る可能性がありますので、[本家DXRuby](https://github.com/mirichi/dxruby) がインストールされていない状態で上記のコマンドを実行してください。
+([本家DXRuby](https://github.com/mirichi/dxruby)は Ruby 3.1以降のバージョンには対応していないため、基本的に gemがインストールされていることはないと思われます)
 
 ## 使用方法
 インストール後、従来どおり DXRubyの機能を使うことができます。
@@ -54,6 +59,60 @@ gem contents dxruby64
 3. 展開したフォルダの中から `Nov2008_d3dx9_40_x64.cab` を探し、ダブルクリックします。
 
 4. `Nov2008_d3dx9_40_x64.cab` の中にある `d3dx9_40.dll` を見つけ、Ruby のインストールフォルダ内の `bin` フォルダにコピー(または移動)します。（例：C:\Ruby34-x64\bin）
+
+## Soundクラスの改修について
+
+### 経緯など
+[本家DXRuby](https://github.com/mirichi/dxruby) の Soundクラスは `DirectMusic` というライブラリを使用していましたが、
+Windows 10/11 の 64bit 環境ではこの `DirectMusic` は正しく動作せず、以下のようなエラーが発生することが確認されています。
+
+```
+`DXRuby::Sound#initialize': DirectMusic initialize error - CoCreateInstance (DXRuby::DXRubyError)  
+```
+このため、DXRuby64では `DirectMusic` の代替として `DirectSound` というライブラリを使用するように改修をおこないました。
+(`DirectSound` は SoundEffectクラスでもすでに使用されており、実績のあるライブラリです)
+
+### 改修版 Soundクラスのサンプル
+
+前述のサンプルファイルの中に `wav_sample/`ディレクトリに改修版の Soundクラスを用いたサンプルを追加しましたのでお試しください。
+なお、下記の制限事項などについてもあわせてご確認ください。
+
+### 制限事項など
+
+`DirectSound` の機能上の制約などから、改修に伴って以下のような仕様変更をおこないました。
+
+- Soundクラスで扱うことができるファイル形式は `.wav` のみ ([本家DXRuby](https://github.com/mirichi/dxruby) では `.mid` も可)
+
+- 再生時のループ回数の指定はできず、「１回のみ再生」または「無限ループ」のいずれか
+
+- ゲームなどで利用される効果音や BGMなどの再生を念頭に、以下に記載の最小限のメソッドのみを実装
+
+```
+■使用できるメソッド(新規にアレンジしたものも含む)
+
+ .new             オブジェクトの生成
+ #play            再生
+ #stop            停止
+ #volume=         音量設定(0～255)
+ #set_volume      音量設定(上記 #volume= のエイリアス)  ※ただし従来の第2引数による音量フェード機能はなし
+ #loop=           ループ再生の採否設定(下記 #loop_count と同じ機能で、trueまたは falseで設定するもの)
+ #loop_count=     ループ回数設定(ただし、前述のように「１回のみ再生(0)」または「無限ループ(-1)」のみ可)
+ #dispose         オブジェクトの破棄
+ #disposed?       オブジェクト破棄状況のチェック
+```
+
+```
+■使用できないメソッド(本家DXRubyでは実装されていたもの)
+
+ .load_from_memory
+ #start=
+ #loop_start=
+ #loop_end=
+ #pan
+ #pan=
+ #frequency
+ #frequency=
+```
 
 ## ライセンス
 この gem は zlib/libpngライセンスの下で提供されています。
