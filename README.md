@@ -48,11 +48,11 @@ gem contents dxruby64
 ## Requirements
 - **Ruby 3.1 or later (64-bit)** installed on Windows.
 
-- `d3dx9_40.dll` is required. This is part of the DirectX 9 runtime. If it's not already installed, you can download it from [Microsoft's official site](https://www.microsoft.com/en-us/download/details.aspx?id=8109).
+- Ensure that **`d3dx9_40.dll`** is present. This DLL is part of the DirectX 9 runtime and can be downloaded from [the official Microsoft website](https://www.microsoft.com/en-us/download/details.aspx?id=8109).
 
-#### How to get `d3dx9_40.dll`
+#### How to obtain and place `d3dx9_40.dll`
 
-1. Download the [DirectX End-User Runtimes (June 2010)](https://www.microsoft.com/en-us/download/details.aspx?id=8109).
+1. Download the file (`directx_Jun2010_redist.exe`) from [DirectX End-User Runtimes (June 2010)](https://www.microsoft.com/en-us/download/details.aspx?id=8109).
 
 2. Double-click the downloaded `directx_Jun2010_redist.exe` and extract the files to a directory of your choice.
 
@@ -84,12 +84,12 @@ Also, be sure to review the following limitations and changes.
 ### Limitations and Specification Changes
 Due to functional constraints of `DirectSound`, the following changes were made as part of the revision:
 
-Supported file format for the Sound class is `.wav` only
-(The [original DXRuby](https://github.com/mirichi/dxruby) also supported `.mid`)
+- The Sound class supports `.wav` and `.mp3` file formats
+(The [original DXRuby](https://github.com/mirichi/dxruby) supports `.wav` and `.mid`)
 
-Loop count cannot be specified; only "play once" or "infinite loop" are supported
+- Loop count cannot be specified; only "play once" or "infinite loop" are supported
 
-Designed with use cases like sound effects and BGM for games in mind, only a minimal set of methods (listed below) is implemented
+- Designed with use cases like sound effects and BGM for games in mind, only a minimal set of methods (listed below) is implemented
 
 ```
 Available Methods (including newly arranged ones)

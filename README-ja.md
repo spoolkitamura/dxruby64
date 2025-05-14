@@ -46,13 +46,13 @@ gem contents dxruby64
 ```
 
 ## 必要条件
-- **Ruby 3.1 以降 (64ビット版)** が Windows にインストールされていること。
+- **Ruby 3.1 以降 (64ビット版)** が Windowsにインストールされていること。
 
-- `d3dx9_40.dll` が必要です。これは DirectX 9 ランタイムの一部です。もしインストールされていない場合は、[Microsoft の公式サイト](https://www.microsoft.com/en-us/download/details.aspx?id=8109)からダウンロードできます。
+- **`d3dx9_40.dll`** が配置されていること。これは DirectX 9 ランタイムの一部で、[Microsoft の公式サイト](https://www.microsoft.com/en-us/download/details.aspx?id=8109)からダウンロードすることができます。
 
-#### 【`d3dx9_40.dll` の入手方法】
+#### 【`d3dx9_40.dll` の入手および配置方法】
 
-1. [DirectX End-User Runtimes (June 2010)](https://www.microsoft.com/en-us/download/details.aspx?id=8109) をダウンロードします。
+1. [DirectX End-User Runtimes (June 2010)](https://www.microsoft.com/en-us/download/details.aspx?id=8109) に掲載されているファイル(`directx_Jun2010_redist.exe`)をダウンロードします。
 
 2. ダウンロードした `directx_Jun2010_redist.exe` をダブルクリックして、任意のディレクトリにファイルを展開します。
 
@@ -81,7 +81,8 @@ Windows 10/11 の 64bit 環境ではこの `DirectMusic` は正しく動作せ�
 
 `DirectSound` の機能上の制約などから、改修に伴って以下のような仕様変更をおこないました。
 
-- Soundクラスで扱うことができるファイル形式は `.wav` のみ ([本家DXRuby](https://github.com/mirichi/dxruby) では `.mid` も可)
+- Soundクラスで扱うことができるファイル形式は `.wav` および `.mp3` です。 
+([本家DXRuby](https://github.com/mirichi/dxruby) では `.wav` および `.mid`)
 
 - 再生時のループ回数の指定はできず、「１回のみ再生」または「無限ループ」のいずれか
 

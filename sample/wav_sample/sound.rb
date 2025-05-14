@@ -4,7 +4,7 @@ sound = Sound.new("gameover.wav")   # gameover.wav読み込み
 sound.loop_count = 0                # 効果音は繰り返さない(「.loop_count = -1|0」形式での設定)
 sound.set_volume(255)               # 効果音の音量(最大)(「.set_volume(値)」形式での設定)
 
-bgm = Sound.new("backg.wav")        # backg.wav読み込み
+bgm = Sound.new("backg.mp3")        # backg.mp3読み込み
 bgm.loop = true                     # BGMは繰り返す(「.loop = true|false」形式での設定)
 bgm.play                            # BGB再生
 bgm.volume = 200                    # BGMの音量(「.volume = 値」形式での設定」)

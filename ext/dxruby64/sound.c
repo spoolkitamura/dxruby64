@@ -16,6 +16,10 @@
 #include "dxruby.h"
 #include "sound.h"
 
+#include <mfapi.h>
+#include <mfplay.h>
+#include <mfreadwrite.h>
+
 #ifndef DS3DALG_DEFAULT
 GUID DS3DALG_DEFAULT = {0};
 #endif
@@ -38,13 +42,13 @@ struct DXRubySound {
     int loopstart;                  /* ループ開始位置(未使用)     */
     int loopend;                    /* ループ終了位置(未使用)     */
     int loopcount;                  /* ループ回数                 */
-    int midwavflag;                 /* wav:1, mid: 0 (未使用)     */
+    int midwavflag;                 /* wav:1, mp3:2               */
     VALUE vbuffer;                  /* Rubyのバッファ             */
 };
 
 /* SoundEffectオブジェクト */
 struct DXRubySoundEffect {
-    LPDIRECTSOUNDBUFFER pDSBuffer;    /* バッファ         */
+    LPDIRECTSOUNDBUFFER pDSBuffer;  /* バッファ                   */
 };
 
 
@@ -55,7 +59,8 @@ struct DXRubySoundEffect {
  *    本家DXRubyで使用していた DirectMusicは
  *    Windows10/11 64bit環境では実質的に使用できないため、
  *    Soundクラスでも SoundEffectクラスと同様に
- *    DirectSoundを使用するよう改修した。
+ *    DirectSoundを使用して
+ *    .WAVファイルおよび .MP3ファイルを再生できるように改修
  *
  * 【DirectMusicを使用した場合のエラー例】
  *    'DXRuby::Sound#initialize': DirectMusic initialize error - CoCreateInstance (DXRuby::DXRubyError)
@@ -165,49 +170,253 @@ static VALUE Sound_check_disposed( VALUE self )
 }
 
 /*--------------------------------------------------------------------
-   オブジェクト生成
+   指定されたファイル名から IMFSourceReaderを作成
  ---------------------------------------------------------------------*/
-static VALUE Sound_initialize(VALUE obj, VALUE vfilename)
-{
-    HRESULT hr;
-    struct DXRubySound *sound;
-    VALUE vsjisstr;
-    CHAR *filename;
-    FILE *fp = NULL;
-    BYTE *data = NULL;
-    DWORD size;
-    DWORD pos = 0;
+static IMFSourceReader *create_source_reader(const WCHAR *filename) {
+    IMFSourceReader *reader = NULL;
+    IMFAttributes   *attr   = NULL;
+    HRESULT          hr;
 
-    g_iRefAll++;
-    Check_Type(vfilename, T_STRING);
+    hr = MFCreateAttributes(&attr, 1);
+    if (FAILED(hr)) return NULL;
 
-    // Shift_JIS 変換
-    if (rb_enc_get_index(vfilename) != 0) {
-        vsjisstr = rb_str_export_to_enc(vfilename, g_enc_sys);
-    } else {
-        vsjisstr = vfilename;
+    hr = attr->lpVtbl->SetUINT32(attr, &MF_READWRITE_DISABLE_CONVERTERS, FALSE);
+    if (FAILED(hr)) {
+        attr->lpVtbl->Release(attr);
+        return NULL;
     }
 
-    filename = RSTRING_PTR(vsjisstr);
+    hr = MFCreateSourceReaderFromURL(filename, attr, &reader);
+    attr->lpVtbl->Release(attr);
 
+    return SUCCEEDED(hr) ? reader : NULL;
+}
+
+/*--------------------------------------------------------------------
+   IMFSourceReaderから MP3音声を読み取り、PCM データとしてデコード
+ ---------------------------------------------------------------------*/
+void decode_mp3(IMFSourceReader *reader, BYTE **pcm_data, DWORD *pcm_size, WAVEFORMATEX **wf) {
+    IMFMediaType   *mediaType  = NULL;
+    IMFMediaBuffer *buffer     = NULL;
+    IMFSample      *sample     = NULL;
+    DWORD           total_size = 0;
+    DWORD           cap        = 1024 * 1024;
+    HRESULT         hr;
+
+    // 出力フォーマットを PCM に指定
+    MFCreateMediaType(&mediaType);
+    mediaType->lpVtbl->SetGUID(mediaType, &MF_MT_MAJOR_TYPE, &MFMediaType_Audio);
+    mediaType->lpVtbl->SetGUID(mediaType, &MF_MT_SUBTYPE, &MFAudioFormat_PCM);
+    reader->lpVtbl->SetCurrentMediaType(reader, (DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, NULL, mediaType);
+    mediaType->lpVtbl->Release(mediaType);
+
+    // 出力フォーマット取得
+    IMFMediaType *outType = NULL;
+    reader->lpVtbl->GetCurrentMediaType(reader, MF_SOURCE_READER_FIRST_AUDIO_STREAM, &outType);
+    UINT32 cbSize = 0;
+    MFCreateWaveFormatExFromMFMediaType(outType, wf, &cbSize, 0);   // 使用後は CoTaskMemFree()による wfのメモリ解放が必要
+    outType->lpVtbl->Release(outType);
+
+    *pcm_data = malloc(cap);
+    if (!*pcm_data) {
+        CoTaskMemFree(wf);
+        rb_raise(eDXRubyError, "Not enough memory for `pcm_data`");
+    }
+
+    while (1) {
+        DWORD flags = 0;
+        LONGLONG ts;
+        hr = reader->lpVtbl->ReadSample(reader, MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, NULL, &flags, &ts, &sample);
+        if (FAILED(hr) || flags & MF_SOURCE_READERF_ENDOFSTREAM) break;
+        if (!sample) continue;
+
+        sample->lpVtbl->ConvertToContiguousBuffer(sample, &buffer);
+        BYTE *data = NULL;
+        DWORD len = 0;
+        buffer->lpVtbl->Lock(buffer, &data, NULL, &len);
+
+        if (total_size + len > cap) {
+            cap *= 2;
+            *pcm_data = realloc(*pcm_data, cap);
+        }
+        memcpy(*pcm_data + total_size, data, len);
+        total_size += len;
+
+        buffer->lpVtbl->Unlock(buffer);
+        buffer->lpVtbl->Release(buffer);
+        sample->lpVtbl->Release(sample);
+    }
+    *pcm_size = total_size;
+}
+
+/*--------------------------------------------------------------------
+   MP3ファイルを読み込み、PCMデータとしてデコード
+ ---------------------------------------------------------------------*/
+void decode_mp3_file(const char *filename_utf8, BYTE **pcm_data, DWORD *pcm_size, WAVEFORMATEX **wf) {
+    WCHAR   wfilename[MAX_PATH];
+    HRESULT hr;
+
+    // Media Foundation 初期化
+    hr = MFStartup(MF_VERSION, MFSTARTUP_LITE);
+    if (FAILED(hr)) {
+        rb_raise(eDXRubyError, "MFStartup failed (0x%lx)", hr);
+    }
+
+    // MP3デコード用の SourceReader 作成
+    MultiByteToWideChar(CP_UTF8, 0, filename_utf8, -1, wfilename, MAX_PATH);
+    IMFSourceReader *reader = create_source_reader(wfilename);
+    if (!reader) {
+        rb_raise(eDXRubyError, "Failed to open MP3 file `%s`", filename_utf8);
+    }
+
+    // MP3デコード
+    decode_mp3(reader, pcm_data, pcm_size, wf);
+    if (!*pcm_data) {
+        rb_raise(eDXRubyError, "Failed to decode MP3");
+    }
+
+    reader->lpVtbl->Release(reader);
+    MFShutdown();
+}
+
+/*--------------------------------------------------------------------
+   WAVファイルを読み込み、PCMデータとしてデコード
+ ---------------------------------------------------------------------*/
+void decode_wav_file(const char *filename_utf8, BYTE **pcm_data, DWORD *pcm_size, WAVEFORMATEX **wf) {
+   /*
+    * .wavファイルの構造
+    * 
+    *   [0x00] "RIFF"             (4バイト) 固定文字列
+    *   [0x04] <ファイルサイズ>   (4バイト) この後のファイルサイズ
+    *   [0x08] "WAVE"             (4バイト) 固定文字列
+    *   
+    *   ---- チャンク開始 ----
+    *   [0x0C] "fmt "             (4バイト) フォーマットチャンクのID
+    *   [0x10] <チャンクサイズ>   (4バイト) 通常は16または18など
+    *   [0x14] <フォーマットデータ>（WAVEFORMATEX相当）
+    *   
+    *   ...その他チャンク（たとえば "fact" チャンクなど）...
+    *   
+    *   [??]   "data"             (4バイト) サウンドデータチャンクのID
+    *   [??]   <チャンクサイズ>   (4バイト)
+    *   [??]   <PCMデータ本体>
+    *
+    */
+
+    WCHAR wfilename[MAX_PATH];
+    BYTE *data      = NULL;
+    DWORD data_size =  0;
+    int   pos       = 12;
+
+    MultiByteToWideChar(CP_UTF8, 0, filename_utf8, -1, wfilename, MAX_PATH);
+    FILE *fp = _wfopen(wfilename, L"rb");
+    if (!fp) {
+        rb_raise(eDXRubyError, "Failed to decode WAV file `%s`", filename_utf8);
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+
+    BYTE *wav_file_buffer = (BYTE *)malloc(size);
+    if (!wav_file_buffer) {
+        fclose(fp);
+        rb_raise(eDXRubyError, "Memory allocation failed");
+    }
+
+    fseek(fp, 0, SEEK_SET);
+    fread(wav_file_buffer, 1, size, fp);
+    fclose(fp);
+
+    if (memcmp(wav_file_buffer, "RIFF", 4) != 0 || memcmp(wav_file_buffer + 8, "WAVE", 4) != 0) {
+        free(wav_file_buffer);
+        rb_raise(eDXRubyError, "Not a valid WAV file");
+    }
+
+    *wf = (WAVEFORMATEX *)malloc(sizeof(WAVEFORMATEX));
+    if (!*wf) {
+        free(wav_file_buffer);
+        rb_raise(eDXRubyError, "Not enough memory for `wf`");
+    }
+
+    while (pos + 8 <= size) {
+        DWORD chunkSize = *(DWORD *)(wav_file_buffer + pos + 4);
+
+        // chunkSize の妥当性をチェック
+        if (pos + 8 + chunkSize > size) {
+            free(*wf);
+            free(wav_file_buffer);
+            rb_raise(eDXRubyError, "Corrupted WAV file (chunk overflow)");
+        }
+
+        if (memcmp(wav_file_buffer + pos, "fmt ", 4) == 0) {
+            // "fmt " チャンクから WAVEFORMATEX構造体のフォーマット情報を取得
+            DWORD fmt_size = chunkSize;
+            if (fmt_size < sizeof(WAVEFORMATEX)) {
+                // WAVEFORMATEX全体を0で初期化し、fmtチャンクにあるバイト分だけコピーする
+                memset(*wf, 0, sizeof(WAVEFORMATEX));
+                memcpy(*wf, wav_file_buffer + pos + 8, fmt_size);
+            } else {
+                memcpy(*wf, wav_file_buffer + pos + 8, sizeof(WAVEFORMATEX));
+            }
+        } else if (memcmp(wav_file_buffer + pos, "data", 4) == 0) {
+            // "data" チャンクから PCM音声データ本体とそのサイズを取得
+            data = wav_file_buffer + pos + 8;
+            data_size = chunkSize;
+        }
+        pos += 8 + ((chunkSize + 1) & ~1);
+    }
+
+    if (!data || data_size == 0) {
+        free(*wf);
+        free(wav_file_buffer);
+        rb_raise(eDXRubyError, "No wave data found");
+    }
+
+    // pcm_data に直接メモリを割り当て
+    *pcm_data = (BYTE *)malloc(data_size);
+    if (!*pcm_data) {
+        free(*wf);
+        free(wav_file_buffer);
+        rb_raise(eDXRubyError, "Not enough memory for `pcm_data`");
+    }
+
+    // pcm_data にコピー
+    memcpy(*pcm_data, data, data_size);
+    *pcm_size = data_size;
+    free(wav_file_buffer); // wav_file_buffer はここで解放
+}
+
+/*--------------------------------------------------------------------
+   オブジェクト生成
+ ---------------------------------------------------------------------*/
+// サウンド初期化
+static VALUE Sound_initialize(VALUE obj, VALUE vfilename) {
+    struct DXRubySound *sound;                 // サウンドクラスのインスタンス
+    const char         *filename_utf8;         // ファイル名(.wav | .mp3)
+    BYTE               *pcm_data = NULL;       // PCMデータ
+    DWORD               pcm_size = 0;          // PCMデータのサイズ
+    WAVEFORMATEX       *wf       = NULL;       // フォーマット
+    HRESULT             hr;
+
+    g_iRefAll++;
     // DirectSound 初期化
     if (g_iRefDS == 0) {
         hr = CoInitialize(NULL);
         if (FAILED(hr)) {
-            rb_raise(eDXRubyError, "COM initialize failed - CoInitialize");
+            rb_raise(eDXRubyError, "COM initialize failed - CoInitialize (0x%lx)", hr);
         }
 
         hr = DirectSoundCreate8(NULL, &g_pDSound, NULL);
         if (FAILED(hr)) {
             CoUninitialize();
-            rb_raise(eDXRubyError, "DirectSound initialize failed - DirectSoundCreate8");
+            rb_raise(eDXRubyError, "DirectSound initialize failed - DirectSoundCreate8 (0x%lx)", hr);
         }
 
         hr = g_pDSound->lpVtbl->SetCooperativeLevel(g_pDSound, g_hWnd, DSSCL_PRIORITY);
         if (FAILED(hr)) {
             RELEASE(g_pDSound);
             CoUninitialize();
-            rb_raise(eDXRubyError, "Set cooperative level failed");
+            rb_raise(eDXRubyError, "Set cooperative level failed (0x%lx)", hr);
         }
     }
     g_iRefDS++;
@@ -217,83 +426,74 @@ static VALUE Sound_initialize(VALUE obj, VALUE vfilename)
     if (sound->pDSBuffer) {
         Sound_free(sound);
     }
+    sound->vbuffer    = Qnil;
+    sound->loopcount  = 0;
 
-    // ファイル読み込み
-    fp = fopen(filename, "rb");
-    if (!fp) {
-        rb_raise(eDXRubyError, "Failed to open file `%s`", filename);
+    // ファイル名処理
+    Check_Type(vfilename, T_STRING);
+    // UTF-8 以外なら ArgumentError
+    if (rb_enc_get_index(vfilename) != rb_utf8_encindex()) {
+        rb_raise(rb_eArgError, "filename must be a UTF-8 encoded string");
     }
-    fseek(fp, 0, SEEK_END);
-    size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    data = malloc(size);
-    if (!data) {
-        fclose(fp);
-        rb_raise(eDXRubyError, "Memory allocation failed");
-    }
-    fread(data, 1, size, fp);
-    fclose(fp);
+    // UTF-8 → UTF-16（Windows API用）に変換
+    filename_utf8 = RSTRING_PTR(vfilename);
 
-    // WAV ヘッダ解析
-    if (memcmp(data, "RIFF", 4) != 0 || memcmp(data + 8, "WAVE", 4) != 0) {
-        free(data);
-        rb_raise(eDXRubyError, "Not a valid WAV file");
-    }
+    // 拡張子取得
+    const char *ext = filename_utf8 + strlen(filename_utf8) - 4;
 
-    pos = 12;
-    WAVEFORMATEX wf;
-    BYTE *waveData = NULL;
-    DWORD waveSize = 0;
-
-    while (pos + 8 <= size) {
-        DWORD chunkSize = *(DWORD *)(data + pos + 4);
-        if (memcmp(data + pos, "fmt ", 4) == 0) {
-            memcpy(&wf, data + pos + 8, sizeof(WAVEFORMATEX));
-        } else if (memcmp(data + pos, "data", 4) == 0) {
-            waveData = data + pos + 8;
-            waveSize = chunkSize;
-        }
-        pos += 8 + ((chunkSize + 1) & ~1); // ワード境界合わせ
+    // PCMデータとしてデコード
+    if (_stricmp(ext, ".wav") == 0) {
+        // WAVファイル
+        decode_wav_file(filename_utf8, &pcm_data, &pcm_size, &wf);
+        sound->midwavflag = 1;
+    } else if (_stricmp(ext, ".mp3") == 0) {
+        // MP3ファイル
+        decode_mp3_file(filename_utf8, &pcm_data, &pcm_size, &wf);
+        sound->midwavflag = 2;
+    } else {
+        rb_raise(eDXRubyError, "Unsupported audio format `%s`", filename_utf8);
     }
 
-    if (!waveData || waveSize == 0) {
-        free(data);
-        rb_raise(eDXRubyError, "No wave data found");
-    }
-
-    // バッファ作成
+    // DirectSound バッファ作成
     DSBUFFERDESC desc = {0};
     desc.dwSize = sizeof(DSBUFFERDESC);
     desc.dwFlags = DSBCAPS_CTRLVOLUME;
-    desc.dwBufferBytes = waveSize;
-    desc.lpwfxFormat = &wf;
+    desc.dwBufferBytes = pcm_size;
+    desc.lpwfxFormat = wf;
 
     IDirectSoundBuffer *pTmp = NULL;
     hr = g_pDSound->lpVtbl->CreateSoundBuffer(g_pDSound, &desc, &pTmp, NULL);
     if (FAILED(hr)) {
-        free(data);
-        rb_raise(eDXRubyError, "Failed to create sound buffer");
+        free(pcm_data);
+        rb_raise(eDXRubyError, "CreateSoundBuffer failed (0x%lx)", hr);
     }
 
-    // ロックしてコピー
+    // バッファに PCMデータをロード
     VOID *p1, *p2;
     DWORD b1, b2;
-    hr = pTmp->lpVtbl->Lock(pTmp, 0, waveSize, &p1, &b1, &p2, &b2, 0);
+    hr = pTmp->lpVtbl->Lock(pTmp, 0, pcm_size, &p1, &b1, &p2, &b2, 0);
     if (FAILED(hr)) {
         pTmp->lpVtbl->Release(pTmp);
-        free(data);
-        rb_raise(eDXRubyError, "Buffer lock failed");
+        free(pcm_data);
+        rb_raise(eDXRubyError, "Buffer lock failed (0x%lx)", hr);
     }
-    memcpy(p1, waveData, b1);
-    if (p2 && b2 > 0) memcpy(p2, waveData + b1, b2);
+
+    // PCMデータをコピー
+    memcpy(p1, pcm_data, b1);
+    if (p2 && b2 > 0) memcpy(p2, pcm_data + b1, b2);
     pTmp->lpVtbl->Unlock(pTmp, p1, b1, p2, b2);
 
-    sound->pDSBuffer  = pTmp;
-    sound->vbuffer    = Qnil;
-    sound->loopcount  = 0;        /* 繰り返しなし(１回のみ再生) */
-    sound->midwavflag = 1;
+    // DXRubySoundの構造体へデータを設定
+    sound->pDSBuffer =  pTmp;
 
-    free(data);
+    // メモリ解放
+    if (pcm_data) free(pcm_data);
+    if (sound->midwavflag == 1) {          // .wav
+        if (wf) free(wf);
+    } else if (sound->midwavflag == 1) {   // .mp3
+        CoTaskMemFree(wf);
+    }
+
     return obj;
 }
 
@@ -343,8 +543,8 @@ static VALUE Sound_stop(VALUE obj) {
    音量設定
 
    ※DirectSoundでは -10000(DSBVOLUME_MIN)～0(最大)
-   ※ただし、対数スケールのため実際には -5000ではほぼ無音になる
-   ※DXRuby向けには、0～255を -5000～0にマッピングさせ、
+   ※ただし、対数スケールのため実際には -5000程度でほぼ無音になる
+   ※DXRuby向けに 0～255を -5000～0にマッピングさせ、
      0のときのみ完全ミュートの -10000とする
  ---------------------------------------------------------------------*/
 static VALUE Sound_setVolume(VALUE obj, VALUE vvolume) {

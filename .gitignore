@@ -6,6 +6,7 @@
 /pkg/
 /tmp/
 Gemfile.lock
+**/desktop.ini
 /ext/dxruby64/Makefile
 /ext/dxruby64/*.o
 /ext/dxruby64/*.so

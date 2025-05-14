@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name          = "dxruby64"
-  spec.version       = "1.4.7.1"
+  spec.version       = "1.4.7.2"
   spec.authors       = ["Koki Kitamura"]
   spec.email         = ["spool.kitamura@nifty.ne.jp"]
 
