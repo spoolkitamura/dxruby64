@@ -81,7 +81,7 @@ Windows 10/11 の 64bit 環境ではこの `DirectMusic` は正しく動作せ�
 
 `DirectSound` の機能上の制約などから、改修に伴って以下のような仕様変更をおこないました。
 
-- Soundクラスで扱うことができるファイル形式は `.wav` および `.mp3` です。 
+- Soundクラスで扱うことができるファイル形式は `.wav` および `.mp3` 
 ([本家DXRuby](https://github.com/mirichi/dxruby) では `.wav` および `.mid`)
 
 - 再生時のループ回数の指定はできず、「１回のみ再生」または「無限ループ」のいずれか
