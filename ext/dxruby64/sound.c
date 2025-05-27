@@ -20,6 +20,18 @@
 #include <mfplay.h>
 #include <mfreadwrite.h>
 
+// ---
+// stb_vorbis - Ogg Vorbis audio decoder - public domain/MIT licensed
+// Originally written by Sean T. Barrett (https://nothings.org/)
+// https://github.com/nothings/stb
+//
+// This file includes stb_vorbis as an inline implementation (.inc) file
+// and is used in accordance with its public domain / MIT license terms.
+
+#include "stb_vorbis.c.inc"
+
+// ---
+
 #ifndef DS3DALG_DEFAULT
 GUID DS3DALG_DEFAULT = {0};
 #endif
@@ -42,7 +54,7 @@ struct DXRubySound {
     int loopstart;                  /* ループ開始位置(未使用)     */
     int loopend;                    /* ループ終了位置(未使用)     */
     int loopcount;                  /* ループ回数                 */
-    int midwavflag;                 /* wav:1, mp3:2               */
+    int midwavflag;                 /* wav:1, mp3:2, ogg:3        */
     VALUE vbuffer;                  /* Rubyのバッファ             */
 };
 
@@ -280,6 +292,66 @@ void decode_mp3_file(const char *filename_utf8, BYTE **pcm_data, DWORD *pcm_size
 }
 
 /*--------------------------------------------------------------------
+   OGGファイルを読み込み、PCMデータとしてデコード
+ ---------------------------------------------------------------------*/
+void decode_ogg_file(const char *filename_utf8, BYTE **pcm_data, DWORD *pcm_size, WAVEFORMATEX **wf) {
+    WCHAR wfilename[MAX_PATH];
+    *pcm_data = NULL;
+    *pcm_size = 0;
+    *wf       = NULL;
+
+    MultiByteToWideChar(CP_UTF8, 0, filename_utf8, -1, wfilename, MAX_PATH);
+    FILE *fp = _wfopen(wfilename, L"rb");
+    if (!fp) {
+        rb_raise(eDXRubyError, "Failed to open OGG file `%s`", filename_utf8);
+    }
+
+    int error;
+    stb_vorbis *v = stb_vorbis_open_file(fp, 0, &error, NULL);
+    if (!v) {
+        fclose(fp);
+        rb_raise(eDXRubyError, "Failed to decode OGG stream: `%s` (error=%d)", filename_utf8, error);
+    }
+
+    stb_vorbis_info info = stb_vorbis_get_info(v);
+    int samples = stb_vorbis_stream_length_in_samples(v);
+    int channels = info.channels;
+
+    short *output = (short *)malloc(samples * channels * sizeof(short));
+    if (!output) {
+        stb_vorbis_close(v);
+        fclose(fp);
+        rb_raise(eDXRubyError, "Out of memory for decoded PCM buffer: `%s`", filename_utf8);
+    }
+
+    int actual_samples = stb_vorbis_get_samples_short_interleaved(v, channels, output, samples * channels);
+    stb_vorbis_close(v);
+    fclose(fp);
+    if (actual_samples <= 0) {
+        free(output);
+        rb_raise(eDXRubyError, "OGG decoding produced no samples: `%s`", filename_utf8);
+    }
+
+    *pcm_data = (BYTE *)output;
+    *pcm_size = actual_samples * channels * sizeof(short);
+
+    WAVEFORMATEX *format = (WAVEFORMATEX *)malloc(sizeof(WAVEFORMATEX));
+    if (!format) {
+        free(output);
+        rb_raise(eDXRubyError, "Out of memory for WAVEFORMATEX: `%s`", filename_utf8);
+    }
+    format->wFormatTag      = WAVE_FORMAT_PCM;
+    format->nChannels       = channels;
+    format->nSamplesPerSec  = info.sample_rate;
+    format->wBitsPerSample  = 16;
+    format->nBlockAlign     = channels * 2;
+    format->nAvgBytesPerSec = format->nSamplesPerSec * format->nBlockAlign;
+    format->cbSize          = 0;
+
+    *wf = format;
+}
+
+/*--------------------------------------------------------------------
    WAVファイルを読み込み、PCMデータとしてデコード
  ---------------------------------------------------------------------*/
 void decode_wav_file(const char *filename_utf8, BYTE **pcm_data, DWORD *pcm_size, WAVEFORMATEX **wf) {
@@ -311,7 +383,7 @@ void decode_wav_file(const char *filename_utf8, BYTE **pcm_data, DWORD *pcm_size
     MultiByteToWideChar(CP_UTF8, 0, filename_utf8, -1, wfilename, MAX_PATH);
     FILE *fp = _wfopen(wfilename, L"rb");
     if (!fp) {
-        rb_raise(eDXRubyError, "Failed to decode WAV file `%s`", filename_utf8);
+        rb_raise(eDXRubyError, "Failed to open WAV file `%s`", filename_utf8);
     }
 
     fseek(fp, 0, SEEK_END);
@@ -450,6 +522,10 @@ static VALUE Sound_initialize(VALUE obj, VALUE vfilename) {
         // MP3ファイル
         decode_mp3_file(filename_utf8, &pcm_data, &pcm_size, &wf);
         sound->midwavflag = 2;
+    } else if (_stricmp(ext, ".ogg") == 0) {
+        // OGGファイル
+        decode_ogg_file(filename_utf8, &pcm_data, &pcm_size, &wf);
+        sound->midwavflag = 3;
     } else {
         rb_raise(eDXRubyError, "Unsupported audio format `%s`", filename_utf8);
     }
@@ -490,8 +566,10 @@ static VALUE Sound_initialize(VALUE obj, VALUE vfilename) {
     if (pcm_data) free(pcm_data);
     if (sound->midwavflag == 1) {          // .wav
         if (wf) free(wf);
-    } else if (sound->midwavflag == 1) {   // .mp3
+    } else if (sound->midwavflag == 2) {   // .mp3
         CoTaskMemFree(wf);
+    } else if (sound->midwavflag == 3) {   // .ogg
+        if (wf) free(wf);
     }
 
     return obj;

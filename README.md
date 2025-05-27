@@ -84,7 +84,7 @@ Also, be sure to review the following limitations and changes.
 ### Limitations and Specification Changes
 Due to functional constraints of `DirectSound`, the following changes were made as part of the revision:
 
-- The Sound class supports `.wav` and `.mp3` file formats
+- The Sound class supports `.wav` , `.mp3` and `.ogg`(Vorbis codec only) file formats
 (The [original DXRuby](https://github.com/mirichi/dxruby) supports `.wav` and `.mid`)
 
 - Loop count cannot be specified; only "play once" or "infinite loop" are supported
@@ -126,6 +126,11 @@ This gem is not an official successor of DXRuby, and it is not maintained by the
 ## Repository
 For source code and further information, visit the repository:
 https://github.com/spoolkitamura/dxruby64
+
+## Credits
+
+This software uses [stb_vorbis](https://github.com/nothings/stb) by Sean T. Barrett.  
+stb_vorbis is dual-licensed under public domain and the MIT license.
 
 <br>
 <br>
