@@ -129,7 +129,7 @@ https://github.com/spoolkitamura/dxruby64
 
 ## Credits
 
-This software uses [stb_vorbis](https://github.com/nothings/stb) by Sean T. Barrett for decoding OGG files (Vorbis format).
+This software uses [stb_vorbis](https://github.com/nothings/stb) by Sean T. Barrett for decoding OGG files (Vorbis format).  
 stb_vorbis is dual-licensed under public domain and the MIT license.
 
 <br>
