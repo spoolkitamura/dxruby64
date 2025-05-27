@@ -81,7 +81,7 @@ Windows 10/11 の 64bit 環境ではこの `DirectMusic` は正しく動作せ�
 
 `DirectSound` の機能上の制約などから、改修に伴って以下のような仕様変更をおこないました。
 
-- Soundクラスで扱うことができるファイル形式は `.wav` , `.mp3` および `.ogg` (Vorbisコーデックのみ)
+- Soundクラスで扱うことができるファイル形式は `.wav` , `.mp3` および `.ogg` (Vorbisコーデックのみ)  
 ([本家DXRuby](https://github.com/mirichi/dxruby) では `.wav` および `.mid`)
 
 - 再生時のループ回数の指定はできず、「１回のみ再生」または「無限ループ」のいずれか
@@ -127,7 +127,7 @@ https://github.com/spoolkitamura/dxruby64
 
 ## クレジット
 
-このソフトウェアは Sean T. Barrett 氏による [stb_vorbis](https://github.com/nothings/stb) を使用しています。  
+このソフトウェアは OGGファイル(Vorbis形式)のデコード処理に Sean T. Barrett 氏による [stb_vorbis](https://github.com/nothings/stb) を使用しています。  
 stb_vorbis はパブリックドメインおよび MIT ライセンスのデュアルライセンスです。
 
 <br>
